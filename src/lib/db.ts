@@ -20,6 +20,7 @@ export type DbLicense = {
   max_machines: number;
   verification_interval_days: number;
   offline_grace_days: number;
+  activation_pin?: string;
   created_at: string;
   updated_at: string;
 };

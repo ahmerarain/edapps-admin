@@ -65,6 +65,32 @@ export function parseRequest(raw: string | Record<string, unknown>): { machineId
   throw new Error("Paste the full activation request copied from the school laptop");
 }
 
+export function newActivationPin(): string {
+  const n = 100000 + (randomBytes(4).readUInt32BE(0) % 900000);
+  return String(n);
+}
+
+export async function ensureActivationPin(row: DbLicense): Promise<DbLicense> {
+  if (row.activation_pin && /^\d{4,8}$/.test(row.activation_pin)) return row;
+  const pin = newActivationPin();
+  const { data, error } = await db()
+    .from("licenses")
+    .update({ activation_pin: pin, updated_at: nowIso() })
+    .eq("id", row.id)
+    .select()
+    .single();
+  if (error) return { ...row, activation_pin: pin };
+  return data as DbLicense;
+}
+
+export function assertActivationPin(license: DbLicense, pinRaw: string | undefined): void {
+  const expected = (license.activation_pin || "").replace(/\D/g, "");
+  const got = String(pinRaw || "").replace(/\D/g, "");
+  if (expected.length < 4 || got !== expected) {
+    throw new Error("Wrong license ID or PIN");
+  }
+}
+
 export async function createSchool(name: string, contact: string) {
   const id = "id_" + randomBytes(8).toString("hex");
   const schoolCode = await nextCode("SCH");
@@ -103,6 +129,7 @@ export async function createLicense(schoolId: string, expiresAt: string, maxMach
   if (!school) throw new Error("School not found");
   if (school.status !== "active") throw new Error("School is disabled");
   const id = await nextCode("LIC");
+  const pin = newActivationPin();
   const now = nowIso();
   const { data, error } = await db()
     .from("licenses")
@@ -114,6 +141,7 @@ export async function createLicense(schoolId: string, expiresAt: string, maxMach
       issued_at: now,
       expires_at: expiresAt,
       max_machines: maxMachines || 1,
+      activation_pin: pin,
       created_at: now,
       updated_at: now,
     })
@@ -124,9 +152,17 @@ export async function createLicense(schoolId: string, expiresAt: string, maxMach
 }
 
 export async function getLicense(id: string) {
-  const { data, error } = await db().from("licenses").select("*").eq("id", id).maybeSingle();
+  const wanted = id.trim();
+  const { data, error } = await db().from("licenses").select("*").eq("id", wanted).maybeSingle();
   if (error) throw new Error(error.message);
-  return data as DbLicense | null;
+  if (data) return ensureActivationPin(data as DbLicense);
+  const upper = wanted.toUpperCase();
+  if (upper !== wanted) {
+    const { data: again, error: err2 } = await db().from("licenses").select("*").eq("id", upper).maybeSingle();
+    if (err2) throw new Error(err2.message);
+    if (again) return ensureActivationPin(again as DbLicense);
+  }
+  return null;
 }
 
 export async function listLicenses(schoolId?: string) {
@@ -134,7 +170,8 @@ export async function listLicenses(schoolId?: string) {
   if (schoolId) q = q.eq("school_id", schoolId);
   const { data, error } = await q;
   if (error) throw new Error(error.message);
-  return (data || []) as DbLicense[];
+  const rows = (data || []) as DbLicense[];
+  return Promise.all(rows.map((row) => ensureActivationPin(row)));
 }
 
 export async function listMachines(licenseId?: string) {
@@ -322,11 +359,13 @@ export async function updateLicense(
     maxMachines?: number;
     verificationIntervalDays?: number;
     offlineGraceDays?: number;
+    resetPin?: boolean;
   }
 ) {
   const row = await getLicense(id);
   if (!row) throw new Error("License not found");
   const now = nowIso();
+  const activation_pin = patch.resetPin ? newActivationPin() : row.activation_pin;
   const { data, error } = await db()
     .from("licenses")
     .update({
@@ -335,6 +374,7 @@ export async function updateLicense(
       max_machines: patch.maxMachines ?? row.max_machines,
       verification_interval_days: patch.verificationIntervalDays ?? row.verification_interval_days,
       offline_grace_days: patch.offlineGraceDays ?? row.offline_grace_days,
+      activation_pin: activation_pin ?? "",
       updated_at: now,
     })
     .eq("id", id)
@@ -342,6 +382,11 @@ export async function updateLicense(
     .single();
   if (error) throw new Error(error.message);
   return data as DbLicense;
+}
+
+/** Force a new activation PIN for WhatsApp to the school. */
+export async function resetActivationPin(id: string) {
+  return updateLicense(id, { resetPin: true });
 }
 
 export async function updateSchool(id: string, patch: { name?: string; contact?: string; status?: string }) {

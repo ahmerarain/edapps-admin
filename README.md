@@ -21,6 +21,6 @@ Next.js + Tailwind + Supabase. Deploy to Vercel. School app still uses SQLite on
 - `SUPABASE_SERVICE_ROLE_KEY` = `sb_secret_...` (or legacy `service_role`)
 - `ED25519_SEED`
 - `ADMIN_PASSWORD`
-- `PUBLIC_URL` = your `https://….vercel.app`
+- `PUBLIC_URL` = `https://edapps-admin.ahmerarain.com`
 
 Nodemailer can be added later as a Next.js API route.

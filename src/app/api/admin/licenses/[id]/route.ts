@@ -12,6 +12,7 @@ export async function POST(req: Request, { params }: Params) {
       status?: string;
       expiresAt?: string;
       maxMachines?: number;
+      resetPin?: boolean;
     };
     return NextResponse.json(await updateLicense(id, body));
   } catch (err) {

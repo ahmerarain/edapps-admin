@@ -20,6 +20,7 @@ create table if not exists licenses (
   max_machines integer not null default 1,
   verification_interval_days integer not null default 29,
   offline_grace_days integer not null default 7,
+  activation_pin text not null default '',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -37,3 +38,6 @@ create table if not exists machines (
 
 create index if not exists idx_licenses_school on licenses(school_id);
 create index if not exists idx_machines_license on machines(license_id);
+
+-- Existing databases: run this once in Supabase SQL editor
+alter table licenses add column if not exists activation_pin text not null default '';
